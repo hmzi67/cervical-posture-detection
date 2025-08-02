@@ -24,8 +24,8 @@ def configure_page():
         layout="wide",
         initial_sidebar_state="expanded",
         menu_items={
-            'Get Help': 'https://github.com/your-repo/cervical-pose-detection',
-            'Report a bug': 'https://github.com/your-repo/cervical-pose-detection/issues',
+            'Get Help': 'https://github.com/hmzi67/cervical-posture-detection.git',
+            'Report a bug': 'https://github.com/hmzi67/cervical-posture-detection/issues',
             'About': """
             # Cervical Pose Detection System
             
