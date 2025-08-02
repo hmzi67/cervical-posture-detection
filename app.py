@@ -8,6 +8,7 @@ import streamlit as st
 import cv2
 import numpy as np
 import time
+import base64
 import matplotlib.pyplot as plt
 
 # Import our enhanced modules
@@ -132,34 +133,6 @@ if 'camera_started' not in st.session_state:
 if 'is_running' not in st.session_state:
     st.session_state.is_running = False
 
-def add_analysis_overlay(frame, analysis_result):
-    """Add exercise analysis overlay to frame"""
-    h, w = frame.shape[:2]
-    
-    # Add status text overlay
-    status_text = f"Status: {analysis_result['status']}"
-    feedback_text = analysis_result['feedback']
-    
-    # Choose color based on status
-    if analysis_result['status'] == 'Good':
-        color = (0, 255, 0)  # Green
-    elif analysis_result['status'] in ['Too little', 'Too much']:
-        color = (0, 255, 255)  # Yellow
-    else:
-        color = (0, 0, 255)  # Red
-    
-    # Add text to frame
-    cv2.putText(frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-    cv2.putText(frame, feedback_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-    
-    # Add angle or distance information
-    if 'angle' in analysis_result:
-        angle_text = f"Angle: {analysis_result['angle']:.1f}°"
-        cv2.putText(frame, angle_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-    elif 'distance' in analysis_result:
-        distance_text = f"Distance: {analysis_result['distance']:.3f}"
-        cv2.putText(frame, distance_text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
 def main():
     st.title("🏥 Advanced Cervical Posture Detection App")
     st.markdown("### Complete physiotherapy solution with progress tracking and personalized routines")
@@ -224,10 +197,10 @@ def main():
         else:
             st.sidebar.error("No cameras detected")
     
-    # Performance settings
+    # Performance settings (for future use)
     st.sidebar.subheader("⚙️ Performance")
-    fps_target = st.sidebar.slider("FPS Target", 5, 30, 15)
-    confidence_threshold = st.sidebar.slider("Detection Confidence", 0.5, 1.0, 0.7)
+    st.sidebar.slider("FPS Target", 5, 30, 15, help="Target frames per second")
+    st.sidebar.slider("Detection Confidence", 0.5, 1.0, 0.7, help="Pose detection confidence threshold")
     
     # Main content tabs
     tab1, tab2, tab3 = st.tabs(["🎥 Live Exercise", "📊 Progress Tracking", "📋 Exercise Plans"])
@@ -276,15 +249,11 @@ def main():
             
             # Exercise timer
             if st.session_state.is_running:
-                timer_placeholder = st.empty()
-                start_time = time.time()
+                if 'exercise_start_time' not in st.session_state:
+                    st.session_state.exercise_start_time = time.time()
             
-            # Live video streaming placeholder
+            # Live video streaming
             video_placeholder = st.empty()
-            
-            # Initialize frame counter for smooth streaming
-            if 'frame_count' not in st.session_state:
-                st.session_state.frame_count = 0
             
             if st.session_state.is_running and st.session_state.camera_started:
                 # Get and process frame
@@ -295,22 +264,20 @@ def main():
                     processed_frame = process_frame_with_pose_detection(frame, selected_exercise)
                     
                     # Encode frame efficiently for display
-                    import base64
                     encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 75]
                     result, encoded_img = cv2.imencode('.jpg', processed_frame, encode_param)
                     
                     if result:
                         img_str = base64.b64encode(encoded_img).decode()
-                        st.session_state.frame_count += 1
                         
-                        # Update video display with frame info
+                        # Update video display
                         video_placeholder.markdown(
                             f'''
                             <div style="text-align: center;">
                                 <img src="data:image/jpeg;base64,{img_str}" 
                                      style="width: 100%; max-width: 640px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
                                 <p style="margin-top: 5px; font-size: 12px; color: #00ff00;">
-                                    🔴 LIVE STREAMING - {selected_exercise} | Frame: {st.session_state.frame_count}
+                                    🔴 LIVE STREAMING - {selected_exercise}
                                 </p>
                             </div>
                             ''', 
@@ -322,11 +289,9 @@ def main():
                     video_placeholder.error("❌ No camera feed available")
                     
                 # Auto-refresh for continuous streaming
-                time.sleep(0.01)  # Small delay to prevent overwhelming
+                time.sleep(0.01)
                 st.rerun()
             else:
-                # Reset frame counter when stopped
-                st.session_state.frame_count = 0
                 video_placeholder.info("🎥 Click 'Start Exercise' to begin live pose detection")
         
         with col2:
@@ -386,10 +351,13 @@ def main():
                 st.success("🔴 Recording in progress...")
                 
                 # Add timer display
-                if 'start_time' in locals():
-                    current_time = time.time() - start_time
+                if 'exercise_start_time' in st.session_state:
+                    current_time = time.time() - st.session_state.exercise_start_time
                     st.metric("Exercise Time", f"{current_time:.1f}s")
             else:
+                # Reset timer when stopped
+                if 'exercise_start_time' in st.session_state:
+                    del st.session_state.exercise_start_time
                 st.info("⏸️ Ready to start")
     
     with tab2:
