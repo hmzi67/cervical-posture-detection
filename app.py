@@ -30,9 +30,81 @@ except ImportError:
     MEDIAPIPE_AVAILABLE = False
     st.error("⚠️ MediaPipe not available. Some features may be limited.")
 
-# Only initialize pose detector if mediapipe is available
-if MEDIAPIPE_AVAILABLE:
-    from src.pose_detector import CervicalPoseDetector
+def process_frame_with_pose_detection(frame, selected_exercise):
+    """Process frame with pose detection and exercise analysis"""
+    if not MEDIAPIPE_AVAILABLE or not hasattr(st.session_state, 'pose_detector'):
+        return frame
+    
+    # Detect pose
+    landmarks, annotated_frame = st.session_state.pose_detector.detect_pose(frame)
+    
+    if landmarks:
+        # Analyze the specific exercise
+        analysis_result = None
+        
+        if selected_exercise == "Cervical Flexion (Chin-to-chest)":
+            analysis_result = st.session_state.exercise_analyzer.analyze_cervical_flexion(landmarks)
+        elif selected_exercise == "Cervical Extension (Look upward)":
+            analysis_result = st.session_state.exercise_analyzer.analyze_cervical_extension(landmarks)
+        elif selected_exercise == "Lateral Neck Tilt (Left and Right)":
+            analysis_result = st.session_state.exercise_analyzer.analyze_lateral_tilt(landmarks)
+        elif selected_exercise == "Neck Rotation (Turn head left/right)":
+            analysis_result = st.session_state.exercise_analyzer.analyze_neck_rotation(landmarks)
+        elif selected_exercise == "Chin Tuck (Retract chin)":
+            analysis_result = st.session_state.exercise_analyzer.analyze_chin_tuck(landmarks)
+        
+        # Add analysis overlay to frame
+        if analysis_result:
+            add_analysis_overlay(annotated_frame, analysis_result)
+            
+            # Update session state with latest feedback
+            st.session_state.current_feedback = analysis_result
+            
+            # Log measurement for progress tracking
+            if st.session_state.is_running:
+                measurement_key = 'angle' if 'angle' in analysis_result else 'distance'
+                measurement_value = analysis_result.get(measurement_key, 0)
+                st.session_state.progress_tracker.log_measurement(
+                    selected_exercise,
+                    measurement_value,
+                    analysis_result.get('status', 'Unknown')
+                )
+        
+        return annotated_frame
+    
+    return frame
+
+def add_analysis_overlay(frame, analysis_result):
+    """Add analysis overlay to the camera frame"""
+    h, w = frame.shape[:2]
+    
+    # Status color coding
+    status = analysis_result.get('status', 'Unknown')
+    if status == 'Good':
+        color = (0, 255, 0)  # Green
+    elif status in ['Too little', 'Too much', 'Forward head', 'Over-tucked']:
+        color = (0, 165, 255)  # Orange
+    else:
+        color = (255, 255, 255)  # White
+    
+    # Add status text
+    cv2.putText(frame, f"Status: {status}", 
+               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    
+    # Add measurement
+    measurement_key = 'angle' if 'angle' in analysis_result else 'distance'
+    unit = '°' if 'angle' in analysis_result else 'cm'
+    measurement_value = analysis_result.get(measurement_key, 0)
+    cv2.putText(frame, f"{measurement_key.title()}: {measurement_value:.1f}{unit}", 
+               (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    
+    # Add feedback text
+    feedback_text = analysis_result.get('feedback', '')
+    if feedback_text:
+        cv2.putText(frame, feedback_text[:50], 
+                   (10, h-30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    
+    return frame
 
 # Set page config
 st.set_page_config(
@@ -207,83 +279,94 @@ def main():
                 timer_placeholder = st.empty()
                 start_time = time.time()
             
-            # Camera feed (enhanced with your existing code)
-            camera_placeholder = st.empty()
+            # Live video streaming placeholder
+            video_placeholder = st.empty()
+            
+            # Initialize frame counter for smooth streaming
+            if 'frame_count' not in st.session_state:
+                st.session_state.frame_count = 0
             
             if st.session_state.is_running and st.session_state.camera_started:
-                # Display live camera feed with pose detection
+                # Get and process frame
                 frame = st.session_state.camera_handler.read_frame()
                 
                 if frame is not None:
-                    # Perform pose detection if MediaPipe is available
-                    if MEDIAPIPE_AVAILABLE and hasattr(st.session_state, 'pose_detector'):
-                        landmarks, annotated_frame = st.session_state.pose_detector.detect_pose(frame)
+                    # Process frame with pose detection
+                    processed_frame = process_frame_with_pose_detection(frame, selected_exercise)
+                    
+                    # Encode frame efficiently for display
+                    import base64
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 75]
+                    result, encoded_img = cv2.imencode('.jpg', processed_frame, encode_param)
+                    
+                    if result:
+                        img_str = base64.b64encode(encoded_img).decode()
+                        st.session_state.frame_count += 1
                         
-                        # Perform exercise analysis if landmarks detected
-                        analysis_result = None
-                        if landmarks:
-                            # Map exercise selection to analyzer function
-                            exercise_map = {
-                                "Cervical Flexion (Chin-to-chest)": "cervical_flexion",
-                                "Cervical Extension (Look upward)": "cervical_extension", 
-                                "Lateral Neck Tilt (Left and Right)": "lateral_tilt",
-                                "Neck Rotation (Turn head left/right)": "rotation",
-                                "Chin Tuck (Retract chin)": "chin_tuck"
-                            }
-                            
-                            exercise_type = exercise_map.get(selected_exercise, "cervical_flexion")
-                            
-                            # Analyze the specific exercise
-                            if exercise_type == "cervical_flexion":
-                                analysis_result = st.session_state.exercise_analyzer.analyze_cervical_flexion(landmarks)
-                            elif exercise_type == "cervical_extension":
-                                analysis_result = st.session_state.exercise_analyzer.analyze_cervical_extension(landmarks)
-                            elif exercise_type == "lateral_tilt":
-                                analysis_result = st.session_state.exercise_analyzer.analyze_lateral_tilt(landmarks)
-                            elif exercise_type == "rotation":
-                                analysis_result = st.session_state.exercise_analyzer.analyze_rotation(landmarks)
-                            elif exercise_type == "chin_tuck":
-                                analysis_result = st.session_state.exercise_analyzer.analyze_chin_tuck(landmarks)
-                            
-                            # Add analysis overlay to frame
-                            if analysis_result:
-                                add_analysis_overlay(annotated_frame, analysis_result)
+                        # Update video display with frame info
+                        video_placeholder.markdown(
+                            f'''
+                            <div style="text-align: center;">
+                                <img src="data:image/jpeg;base64,{img_str}" 
+                                     style="width: 100%; max-width: 640px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                                <p style="margin-top: 5px; font-size: 12px; color: #00ff00;">
+                                    🔴 LIVE STREAMING - {selected_exercise} | Frame: {st.session_state.frame_count}
+                                </p>
+                            </div>
+                            ''', 
+                            unsafe_allow_html=True
+                        )
                     else:
-                        # If MediaPipe not available, just show camera feed
-                        annotated_frame = frame
-                        analysis_result = None
-                    
-                    # Convert BGR to RGB for Streamlit
-                    frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-                    camera_placeholder.image(frame_rgb, channels="RGB", use_column_width=True)
-                    
-                    # Display analysis results in sidebar if available
-                    if analysis_result:
-                        st.sidebar.subheader("📊 Exercise Analysis")
-                        status_color = "🟢" if analysis_result['status'] == 'Good' else "🟡" if analysis_result['status'] in ['Too little', 'Too much'] else "🔴"
-                        st.sidebar.markdown(f"{status_color} **Status:** {analysis_result['status']}")
-                        if 'angle' in analysis_result:
-                            st.sidebar.metric("Angle", f"{analysis_result['angle']:.1f}°")
-                        if 'distance' in analysis_result:
-                            st.sidebar.metric("Distance", f"{analysis_result['distance']:.3f}")
-                        st.sidebar.info(f"💡 {analysis_result['feedback']}")
+                        video_placeholder.error("❌ Failed to encode frame")
                 else:
-                    camera_placeholder.error("❌ Camera not available or disconnected")
-            elif st.session_state.is_running:
-                camera_placeholder.warning("⚠️ Camera not started. Click 'Start Exercise' to initialize camera.")
+                    video_placeholder.error("❌ No camera feed available")
+                    
+                # Auto-refresh for continuous streaming
+                time.sleep(0.01)  # Small delay to prevent overwhelming
+                st.rerun()
             else:
-                camera_placeholder.info("📸 Click 'Start Exercise' to begin camera feed")
+                # Reset frame counter when stopped
+                st.session_state.frame_count = 0
+                video_placeholder.info("🎥 Click 'Start Exercise' to begin live pose detection")
         
         with col2:
             st.subheader("📊 Real-time Feedback")
+            
+            # Display current feedback if available
+            if hasattr(st.session_state, 'current_feedback'):
+                feedback = st.session_state.current_feedback
+                status = feedback.get('status', 'Ready')
+                
+                if status == 'Good':
+                    st.success(f"✅ {status}")
+                elif status in ['Too little', 'Too much', 'Forward head', 'Over-tucked']:
+                    st.warning(f"⚠️ {status}")
+                else:
+                    st.info(f"ℹ️ {status}")
+                
+                # Show measurement if available
+                if 'angle' in feedback:
+                    st.metric("Current Angle", f"{feedback['angle']:.1f}°")
+                elif 'distance' in feedback:
+                    st.metric("Current Distance", f"{feedback['distance']:.3f}")
+                
+                # Show feedback text
+                feedback_text = feedback.get('feedback', '')
+                if feedback_text:
+                    st.info(f"� {feedback_text}")
             
             # Session statistics
             if hasattr(st.session_state, 'progress_tracker'):
                 stats = st.session_state.progress_tracker.get_session_stats()
                 if stats:
-                    st.metric("Session Duration", f"{stats.get('session_duration', 0):.1f}s")
-                    st.metric("Accuracy", f"{stats.get('average_accuracy', 0):.1f}%")
-                    st.metric("Measurements", stats.get('total_measurements', 0))
+                    st.subheader("📈 Session Stats")
+                    col_stat1, col_stat2 = st.columns(2)
+                    with col_stat1:
+                        st.metric("Duration", f"{stats.get('session_duration', 0):.1f}s")
+                        st.metric("Measurements", stats.get('total_measurements', 0))
+                    with col_stat2:
+                        st.metric("Accuracy", f"{stats.get('average_accuracy', 0):.1f}%")
+                        st.metric("Exercises", stats.get('exercises_performed', 0))
             
             # Exercise instructions
             st.subheader("📝 Current Exercise")
