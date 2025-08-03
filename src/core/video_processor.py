@@ -39,35 +39,58 @@ class VideoProcessor:
         """Process a single frame and return results"""
         start_time = time.time()
         
-        # Convert BGR to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Validate input frame
+        if frame is None:
+            # Return a blank frame and error results
+            blank_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            error_results = {
+                exercise_type: ExerciseResult(
+                    exercise_type, False, 0.0, DetectionStatus.ERROR,
+                    "No frame provided"
+                ) for exercise_type in ExerciseType
+            }
+            return blank_frame, error_results
         
-        # Process with MediaPipe
-        pose_results = self.pose.process(rgb_frame)
-        
-        # Draw pose landmarks
-        if pose_results.pose_landmarks:
-            self.mp_drawing.draw_landmarks(
-                frame, pose_results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=4, circle_radius=4),
-                connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=3)
-            )
-        
-        # Detect exercises
-        exercise_results = self.exercise_system.detect_exercises(pose_results, frame.shape)
-        
-        # Draw FPS
-        self._draw_fps(frame)
-        
-        # Update performance metrics
-        processing_time = time.time() - start_time
-        self.processing_times.append(processing_time)
-        if len(self.processing_times) > 30:
-            self.processing_times.pop(0)
-        
-        self.frame_count += 1
-        
-        return frame, exercise_results
+        try:
+            # Convert BGR to RGB for MediaPipe
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Process with MediaPipe
+            pose_results = self.pose.process(rgb_frame)
+            
+            # Draw pose landmarks
+            if pose_results.pose_landmarks:
+                self.mp_drawing.draw_landmarks(
+                    frame, pose_results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
+                    landmark_drawing_spec=self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=4, circle_radius=4),
+                    connection_drawing_spec=self.mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=3)
+                )
+            
+            # Detect exercises
+            exercise_results = self.exercise_system.detect_exercises(pose_results, frame.shape)
+            
+            # Draw FPS
+            self._draw_fps(frame)
+            
+            # Update performance metrics
+            processing_time = time.time() - start_time
+            self.processing_times.append(processing_time)
+            if len(self.processing_times) > 30:
+                self.processing_times.pop(0)
+            
+            self.frame_count += 1
+            
+            return frame, exercise_results
+            
+        except Exception as e:
+            # Handle any processing errors gracefully
+            error_results = {
+                exercise_type: ExerciseResult(
+                    exercise_type, False, 0.0, DetectionStatus.ERROR,
+                    f"Processing error: {str(e)}"
+                ) for exercise_type in ExerciseType
+            }
+            return frame.copy() if frame is not None else np.zeros((480, 640, 3), dtype=np.uint8), error_results
     
     def _draw_fps(self, frame: np.ndarray):
         """Draw FPS on frame"""

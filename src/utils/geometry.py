@@ -49,6 +49,10 @@ class LandmarkExtractor:
     @staticmethod
     def extract_landmarks(pose_results, frame_shape) -> Optional[LandmarkPoints]:
         """Extract key landmarks from MediaPipe pose results"""
+        # Handle None input
+        if pose_results is None:
+            return None
+            
         if not pose_results.pose_landmarks:
             return None
         
@@ -65,7 +69,7 @@ class LandmarkExtractor:
                 left_shoulder=np.array([landmarks[11].x * w, landmarks[11].y * h]),
                 right_shoulder=np.array([landmarks[12].x * w, landmarks[12].y * h])
             )
-        except (IndexError, AttributeError) as e:
+        except (IndexError, AttributeError, TypeError) as e:
             # Handle missing landmarks gracefully
             return None
     
@@ -96,6 +100,9 @@ class MathUtils:
     @staticmethod
     def clamp(value: float, min_val: float, max_val: float) -> float:
         """Clamp value to specified range"""
+        # Handle case where min_val > max_val by swapping them
+        if min_val > max_val:
+            min_val, max_val = max_val, min_val
         return max(min_val, min(max_val, value))
     
     @staticmethod

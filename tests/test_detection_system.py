@@ -383,7 +383,7 @@ class TestSystemConfigIntegration(unittest.TestCase):
         
         detector = CervicalFlexionDetector(custom_config)
         self.assertEqual(detector.threshold, 0.9)
-        self.assertEqual(detector.calibration_frames, 15)  # Uses default from detector
+        self.assertEqual(detector.calibration_frames, 20)  # Uses config value
         
         system = ExerciseDetectionSystem(custom_config)
         self.assertEqual(system.config.flexion_threshold, 0.9)

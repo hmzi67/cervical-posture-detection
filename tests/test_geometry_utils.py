@@ -332,12 +332,15 @@ class TestGeometryIntegration(unittest.TestCase):
             right_shoulder=np.array([360, 300])
         )
         
+        # Convert to aspect-ratio-preserving normalized coordinates
+        # Scale both x and y by the larger dimension to preserve aspect ratio
+        scale_factor = 640  # Use width as the scale factor
         landmarks_normalized = LandmarkPoints(
-            nose=np.array([0.5, 0.5]),  # Normalized coordinates
-            left_ear=np.array([0.46875, 0.4583]),
-            right_ear=np.array([0.53125, 0.4583]),
-            left_shoulder=np.array([0.4375, 0.625]),
-            right_shoulder=np.array([0.5625, 0.625])
+            nose=np.array([320/scale_factor, 240/scale_factor]),
+            left_ear=np.array([300/scale_factor, 220/scale_factor]),
+            right_ear=np.array([340/scale_factor, 220/scale_factor]),
+            left_shoulder=np.array([280/scale_factor, 300/scale_factor]),
+            right_shoulder=np.array([360/scale_factor, 300/scale_factor])
         )
         
         # Distances should be proportional
@@ -360,6 +363,7 @@ class TestGeometryIntegration(unittest.TestCase):
         pixel_ratio = GeometryUtils.calculate_ratio(pixel_distance, pixel_nose_shoulder)
         normalized_ratio = GeometryUtils.calculate_ratio(normalized_distance, normalized_nose_shoulder)
         
+        # Now the ratios should be very close since we preserved aspect ratio
         self.assertAlmostEqual(pixel_ratio, normalized_ratio, places=2)
 
 

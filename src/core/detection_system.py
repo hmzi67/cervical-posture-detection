@@ -10,14 +10,40 @@ from .models import ExerciseType, ExerciseResult, DetectionStatus, SystemConfig,
 from ..utils.geometry import LandmarkExtractor, GeometryUtils
 
 
+class CalibrationState:
+    """Tracks calibration state for an exercise detector"""
+    
+    def __init__(self, frames_required: int = 15):
+        self.frames_required = frames_required
+        self.frames_collected = 0
+        self.is_complete = False
+    
+    @property
+    def progress_percentage(self) -> float:
+        """Get calibration progress as percentage"""
+        return min(100.0, (self.frames_collected / self.frames_required) * 100)
+    
+    def add_frame(self):
+        """Add a calibration frame"""
+        if not self.is_complete:
+            self.frames_collected += 1
+            if self.frames_collected >= self.frames_required:
+                self.is_complete = True
+    
+    def reset(self):
+        """Reset calibration state"""
+        self.frames_collected = 0
+        self.is_complete = False
+
+
 class BaseDetector(ABC):
     """Base exercise detector"""
     
     def __init__(self, exercise_type: ExerciseType, config: SystemConfig = None):
         self.exercise_type = exercise_type
         self.config = config or SystemConfig()
-        self.calibration_frames = 15
-        self.frames_collected = 0
+        self.calibration_frames = self.config.calibration_frames
+        self.calibration = CalibrationState(self.calibration_frames)  # Use config value
         self.is_calibrated = False
         self.previous_confidence = 0.0
     
@@ -54,10 +80,10 @@ class BaseDetector(ABC):
             )
     
     def _handle_calibration(self, landmarks: LandmarkPoints) -> ExerciseResult:
-        self.frames_collected += 1
+        self.calibration.add_frame()
         self._collect_baseline_data(landmarks)
         
-        if self.frames_collected >= self.calibration_frames:
+        if self.calibration.is_complete:
             self._finalize_calibration()
             self.is_calibrated = True
             return ExerciseResult(
@@ -65,10 +91,10 @@ class BaseDetector(ABC):
                 "✅ Calibration complete! Start exercising now."
             )
         
-        progress = (self.frames_collected / self.calibration_frames) * 100
+        progress = self.calibration.progress_percentage
         return ExerciseResult(
             self.exercise_type, False, 0.0, DetectionStatus.CALIBRATING,
-            f"🔄 Calibrating... {progress:.0f}% ({self.frames_collected}/{self.calibration_frames})"
+            f"🔄 Calibrating... {progress:.0f}% ({self.calibration.frames_collected}/{self.calibration.frames_required})"
         )
     
     @abstractmethod
@@ -88,9 +114,14 @@ class BaseDetector(ABC):
         pass
     
     def reset(self):
-        self.frames_collected = 0
+        self.calibration.reset()
         self.is_calibrated = False
         self.previous_confidence = 0.0
+    
+    @property
+    def frames_collected(self) -> int:
+        """Get number of calibration frames collected"""
+        return self.calibration.frames_collected
 
 
 class CervicalFlexionDetector(BaseDetector):
@@ -100,7 +131,7 @@ class CervicalFlexionDetector(BaseDetector):
         super().__init__(ExerciseType.CERVICAL_FLEXION, config)
         self.baseline_distance = None
         self.calibration_distances = []
-        self.threshold = 0.85
+        self.threshold = self.config.flexion_threshold
     
     def _collect_baseline_data(self, landmarks: LandmarkPoints):
         mid_shoulder = (landmarks.left_shoulder + landmarks.right_shoulder) / 2
@@ -136,7 +167,7 @@ class CervicalExtensionDetector(BaseDetector):
         super().__init__(ExerciseType.CERVICAL_EXTENSION, config)
         self.baseline_distance = None
         self.calibration_distances = []
-        self.threshold = 1.15
+        self.threshold = self.config.extension_threshold
     
     def _collect_baseline_data(self, landmarks: LandmarkPoints):
         mid_shoulder = (landmarks.left_shoulder + landmarks.right_shoulder) / 2
@@ -174,7 +205,7 @@ class LateralNeckTiltDetector(BaseDetector):
         self.baseline_right = None
         self.calibration_left = []
         self.calibration_right = []
-        self.threshold = 0.15
+        self.threshold = self.config.tilt_threshold
     
     def _collect_baseline_data(self, landmarks: LandmarkPoints):
         left_dist = GeometryUtils.calculate_distance(landmarks.nose, landmarks.left_ear)
@@ -219,7 +250,7 @@ class NeckRotationDetector(BaseDetector):
         self.baseline_right = None
         self.calibration_left = []
         self.calibration_right = []
-        self.threshold = 1.5
+        self.threshold = self.config.rotation_threshold
     
     def _collect_baseline_data(self, landmarks: LandmarkPoints):
         left_vis = abs(landmarks.nose[0] - landmarks.left_ear[0])
@@ -264,7 +295,7 @@ class ChinTuckDetector(BaseDetector):
         self.baseline_depth = None
         self.calibration_offsets = []
         self.calibration_depths = []
-        self.threshold = 0.8
+        self.threshold = self.config.chin_tuck_threshold
     
     def _collect_baseline_data(self, landmarks: LandmarkPoints):
         mid_ear = (landmarks.left_ear + landmarks.right_ear) / 2
@@ -346,23 +377,6 @@ class ExerciseDetectionSystem:
         """Reset all detector baselines"""
         for detector in self.detectors.values():
             detector.reset()
-    
-    def get_system_stats(self) -> dict:
-        """Get detection system statistics"""
-        session_duration = time.time() - self.session_start_time
-        
-        return {
-            'total_detections': self.total_detections,
-            'session_duration': session_duration,
-            'detections_per_second': self.total_detections / session_duration if session_duration > 0 else 0,
-            'active_detectors': len(self.detectors)
-        }
-        return self.detectors.get(exercise_type)
-    
-    def reset_baselines(self):
-        """Reset all detector baselines"""
-        for detector in self.detectors.values():
-            detector.reset()
         
         self.total_detections = 0
         self.session_start_time = time.time()
@@ -381,7 +395,7 @@ class ExerciseDetectionSystem:
             'total_detections': self.total_detections,
             'session_duration': session_duration,
             'detections_per_second': self.total_detections / max(session_duration, 1),
-            'calibrated_detectors': calibrated_count,
+            'active_detectors': calibrated_count,
             'total_detectors': len(self.detectors)
         }
     
